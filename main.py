@@ -5,7 +5,9 @@ from sqlalchemy.orm import Session
 import models, schemas, utils
 from database import engine, get_db
 from models import User
-from utils import create_access_token, hash_password
+from utils import create_access_token, hash_password,verify_reset_token,verify_password
+import re
+from email_service import send_reset_email
 
 app = FastAPI()
 
@@ -37,29 +39,48 @@ class AdminLoginRequest(BaseModel):
 # Define a schema for the request body
 class DeleteUserRequest(BaseModel):
     user_id: int
+
+def validate_password(password: str):
+    """Ensure the password meets complexity requirements."""
+    if len(password) < 8:
+        return "Password must be at least 8 characters long"
+    if not re.search(r"[A-Z]", password):
+        return "Password must contain at least one uppercase letter"
+    if not re.search(r"\d", password):
+        return "Password must contain at least one number"
+    return None
+
+
 @app.post("/signup")
 def signup(user_data: schemas.UserCreate, db: Session = Depends(get_db)):
-    # Check if email already exists
+    # ✅ Check if passwords match
+    if user_data.password != user_data.confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+
+    # ✅ Validate password strength
+    password_error = validate_password(user_data.password)
+    if password_error:
+        raise HTTPException(status_code=400, detail=password_error)
+
+    # ✅ Check if email ends with @gmail.com only
+    email_pattern = r"^[a-zA-Z0-9._%+-]+@gmail\.com$"  # Regex for @gmail.com only
+    if not re.match(email_pattern, user_data.email):
+        raise HTTPException(status_code=400, detail="Only @gmail.com emails are allowed")
+
+    # ✅ Check if email already exists
     existing_user = db.query(models.User).filter(models.User.email == user_data.email).first()
     if existing_user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    # Hash password before storing
+    # ✅ Hash password and save the user
     hashed_pwd = hash_password(user_data.password)
-    
-    # Create a new user
-    new_user = models.User(
-        name=user_data.name,
-        email=user_data.email,
-        hashed_password=hashed_pwd  # Store hashed password
-    )
+    new_user = models.User(name=user_data.name, email=user_data.email, hashed_password=hashed_pwd)
     
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
-    
+
     return {"message": "User registered successfully"}
-from utils import verify_password, create_access_token
 
 @app.post("/login")
 def login(request: schemas.LoginRequest, db: Session = Depends(get_db)):
@@ -91,15 +112,35 @@ def login(request: schemas.LoginRequest, db: Session = Depends(get_db)):
         "name": user.name
     }
 
-@app.post("/admin/login")
-def admin_login(request: AdminLoginRequest):
-    # Validate admin credentials
-    if request.email == ADMIN_EMAIL and request.password == ADMIN_PASSWORD:
-        return {"message": "Admin login successful!"}
+@app.post("/request-password-reset")
+def request_password_reset(email: schemas.EmailSchema, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == email.email).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if send_reset_email(email.email):
+        return {"message": "Password reset link sent to your email"}
     else:
-        raise HTTPException(
-            status_code=401, detail="Invalid admin credentials"
-        )
+        raise HTTPException(status_code=500, detail="Error sending email")
+    
+@app.post("/reset-password")
+def reset_password(data: schemas.ResetPasswordSchema, db: Session = Depends(get_db)):
+    email = verify_reset_token(data.token)
+    
+    if not email:
+        raise HTTPException(status_code=400, detail="Invalid or expired token")
+    
+    user = db.query(models.User).filter(models.User.email == email).first()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.hashed_password = hash_password(data.new_password)
+    db.commit()
+    
+    return {"message": "Password reset successful"}
+
 # Retrieve all login records
 @app.get("/user_logins", response_model=list[schemas.UserResponse])
 def get_all_logins(db: Session = Depends(get_db)):

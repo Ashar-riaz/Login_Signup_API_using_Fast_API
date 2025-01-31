@@ -20,3 +20,15 @@ class UserResponse(BaseModel):
 
     class Config:
         orm_mode = True
+class ResetPassword(BaseModel):
+    email: EmailStr
+    new_password: str
+
+# ✅ Schema for requesting a reset link
+class EmailSchema(BaseModel):
+    email: EmailStr
+
+# ✅ Schema for resetting password
+class ResetPasswordSchema(BaseModel):
+    token: str
+    new_password: str

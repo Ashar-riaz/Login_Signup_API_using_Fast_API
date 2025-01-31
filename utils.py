@@ -15,7 +15,21 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # def verify_password(plain_password: str, hashed_password: str) -> bool:
 #     return pwd_context.verify(plain_password, hashed_password)
+# ✅ Generate reset token
+def generate_reset_token(email: str):
+    expiration = datetime.utcnow() + timedelta(hours=1)  # Token valid for 1 hour
+    payload = {"sub": email, "exp": expiration}
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
+# ✅ Verify reset token
+def verify_reset_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload["sub"]  # Return email
+    except jwt.ExpiredSignatureError:
+        return None  # Token expired
+    except jwt.InvalidTokenError:
+        return None  # Invalid token
 
 # Hash Password Before Storing in DB
 def hash_password(password: str) -> str:
