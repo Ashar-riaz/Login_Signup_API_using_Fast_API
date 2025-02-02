@@ -151,7 +151,7 @@ def get_all_logins(db: Session = Depends(get_db)):
     return users
 
 # API to delete a user by ID (passed in the body)
-@app.delete("/users", status_code=200)
+@app.delete("/del-users", status_code=200)
 def delete_user(request: DeleteUserRequest, db: Session = Depends(get_db)):
     # Query the user from the database
     user = db.query(models.User).filter(models.User.id == request.user_id).first()
